@@ -184,7 +184,9 @@ void handle_dfile(int client_socket, char *filename)
     char base_dir[BUFSIZE];
     char found_path[BUFSIZE] = {0};
 
+    printf("[DEBUG] Starting dfile command\n");
     get_base_dir(strrchr(filename, '.'), base_dir);
+    printf("[DEBUG] Base directory: %s\n", base_dir);
     if (base_dir[0] == '\0')
     {
         write(client_socket, COLOR_RED "Error: Unsupported file type\n" COLOR_RESET, strlen(COLOR_RED "Error: Unsupported file type\n" COLOR_RESET));
@@ -194,13 +196,14 @@ void handle_dfile(int client_socket, char *filename)
     if (!search_file_in_tree(base_dir, filename, found_path))
     {
         char error_message[BUFSIZE];
-        snprintf(error_message, BUFSIZE, COLOR_RED "Error: File %s not found\n" COLOR_RESET, filename);
+        snprintf(error_message, BUFSIZE, COLOR_RED "Error: File %s does not exist\n" COLOR_RESET, filename);
         write(client_socket, error_message, strlen(error_message));
         return;
     }
 
-    FILE *file = fopen(found_path, "rb");
-    if (!file)
+    printf("[DEBUG] File found at path: %s\n", found_path);
+    FILE *src_file = fopen(found_path, "rb");
+    if (!src_file)
     {
         perror(COLOR_RED "File open failed" COLOR_RESET);
         char error_message[BUFSIZE];
@@ -209,13 +212,24 @@ void handle_dfile(int client_socket, char *filename)
         return;
     }
 
+    printf("[DEBUG] Sending file contents to client\n");
     char buffer[BUFSIZE];
     size_t bytes;
-    while ((bytes = fread(buffer, 1, BUFSIZE, file)) > 0)
+    while ((bytes = fread(buffer, 1, BUFSIZE, src_file)) > 0)
     {
-        write(client_socket, buffer, bytes);
+        if (write(client_socket, buffer, bytes) < 0)
+        {
+            perror(COLOR_RED "Error sending file data" COLOR_RESET);
+            break;
+        }
     }
-    fclose(file);
+    fclose(src_file);
+
+    // Send a confirmation message to indicate the end of transmission
+    printf("[DEBUG] Sending transfer complete message\n");
+    write(client_socket, "Transfer complete\n", 18);
+
+    printf("[DEBUG] dfile command completed\n");
 }
 
 // Function to handle file removal (rmfile)
@@ -224,7 +238,9 @@ void handle_rmfile(int client_socket, char *filename)
     char base_dir[BUFSIZE];
     char found_path[BUFSIZE] = {0};
 
+    printf("[DEBUG] Starting rmfile command\n");
     get_base_dir(strrchr(filename, '.'), base_dir);
+    printf("[DEBUG] Base directory: %s\n", base_dir);
     if (base_dir[0] == '\0')
     {
         write(client_socket, COLOR_RED "Error: Unsupported file type\n" COLOR_RESET, strlen(COLOR_RED "Error: Unsupported file type\n" COLOR_RESET));
@@ -239,6 +255,7 @@ void handle_rmfile(int client_socket, char *filename)
         return;
     }
 
+    printf("[DEBUG] File found at path: %s\n", found_path);
     if (remove(found_path) == 0)
     {
         write(client_socket, COLOR_GREEN "File removed successfully\n" COLOR_RESET, strlen(COLOR_GREEN "File removed successfully\n" COLOR_RESET));
@@ -250,6 +267,7 @@ void handle_rmfile(int client_socket, char *filename)
         snprintf(error_message, BUFSIZE, COLOR_RED "Error: Could not remove file %s\n" COLOR_RESET, found_path);
         write(client_socket, error_message, strlen(error_message));
     }
+    printf("[DEBUG] Finished rmfile command\n");
 }
 
 // Function to handle tar creation and download (dtar)
@@ -266,12 +284,14 @@ void handle_dtar(int client_socket, char *filetype)
     char command[BUFSIZE];
     snprintf(command, sizeof(command), "find %s -name '*.%s' -print0 | xargs -0 tar -cvf files.tar", base_dir, filetype);
 
+    printf("[DEBUG] Running tar command: %s\n", command);
     if (system(command) != 0)
     {
         write(client_socket, COLOR_RED "Error: Tarball creation failed\n" COLOR_RESET, strlen(COLOR_RED "Error: Tarball creation failed\n" COLOR_RESET));
         return;
     }
 
+    printf("[DEBUG] Tarball created successfully\n");
     FILE *tarfile = fopen("files.tar", "rb");
     if (!tarfile)
     {
@@ -282,6 +302,7 @@ void handle_dtar(int client_socket, char *filetype)
         return;
     }
 
+    printf("[DEBUG] Sending tarball to client\n");
     char buffer[BUFSIZE];
     size_t bytes;
     while ((bytes = fread(buffer, 1, BUFSIZE, tarfile)) > 0)
@@ -289,6 +310,7 @@ void handle_dtar(int client_socket, char *filetype)
         write(client_socket, buffer, bytes);
     }
     fclose(tarfile);
+    printf("[DEBUG] Finished sending tarball\n");
 }
 
 // Function to handle directory display (display)
@@ -299,6 +321,7 @@ void handle_display(int client_socket, char *pathname)
     struct dirent **namelist;
     int n;
 
+    printf("[DEBUG] Starting display command\n");
     snprintf(base_dir, sizeof(base_dir), "%s/Smain/%s", getenv("HOME"), pathname);
     n = scandir(base_dir, &namelist, NULL, custom_alphasort);
     if (n < 0)
@@ -319,6 +342,7 @@ void handle_display(int client_socket, char *pathname)
         }
     }
 
+    printf("[DEBUG] Listing directory contents\n");
     // Buffer to store directory content
     char buffer[BUFSIZE];
     snprintf(buffer, sizeof(buffer), COLOR_CYAN "Listing contents of: %s\n" COLOR_RESET, pathname);
@@ -356,6 +380,7 @@ void handle_display(int client_socket, char *pathname)
     }
 
     free(namelist);
+    printf("[DEBUG] Finished display command\n");
 }
 
 // Function to send help/usage information to the client
