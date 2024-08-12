@@ -55,6 +55,11 @@ int main()
         fgets(command, BUFSIZE, stdin);
         command[strlen(command) - 1] = '\0'; // Remove newline character
 
+        if (strlen(command) == 0)
+        {
+            continue; // Ignore empty command and prompt again
+        }
+
         if (strcmp(command, "exit") == 0)
         {
             break; // Exit the loop if the user types "exit"

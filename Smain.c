@@ -270,119 +270,140 @@ void handle_rmfile(int client_socket, char *filename)
     printf("[DEBUG] Finished rmfile command\n");
 }
 
-// Function to handle tar creation and download (dtar)
-void handle_dtar(int client_socket, char *filetype)
+// Function to create a tar file based on the file type
+void handle_dtar(int client_socket, const char *filetype)
 {
+    char command[BUFSIZE];
     char base_dir[BUFSIZE];
-    get_base_dir(filetype, base_dir);
+
+    get_base_dir((char *)filetype, base_dir);
+
     if (base_dir[0] == '\0')
+    {
+        printf(COLOR_RED "Unsupported file type\n" COLOR_RESET);
+        write(client_socket, COLOR_RED "Error: Unsupported file type\n" COLOR_RESET, strlen(COLOR_RED "Error: Unsupported file type\n" COLOR_RESET));
+        return;
+    }
+
+    if (strcmp(filetype, ".c") == 0)
+    {
+        snprintf(command, sizeof(command), "tar -cvf cFiles.tar $(find %s -name '*.c')", base_dir);
+    }
+    else if (strcmp(filetype, ".pdf") == 0)
+    {
+        snprintf(command, sizeof(command), "tar -cvf pdfFiles.tar $(find %s -name '*.pdf')", base_dir);
+    }
+    else if (strcmp(filetype, ".txt") == 0)
+    {
+        snprintf(command, sizeof(command), "tar -cvf txtFiles.tar $(find %s -name '*.txt')", base_dir);
+    }
+    else
     {
         write(client_socket, COLOR_RED "Error: Unsupported file type\n" COLOR_RESET, strlen(COLOR_RED "Error: Unsupported file type\n" COLOR_RESET));
         return;
     }
 
-    char command[BUFSIZE];
-    snprintf(command, sizeof(command), "find %s -name '*.%s' -print0 | xargs -0 tar -cvf files.tar", base_dir, filetype);
-
-    printf("[DEBUG] Running tar command: %s\n", command);
-    if (system(command) != 0)
+    int result = system(command);
+    if (result != 0)
     {
-        write(client_socket, COLOR_RED "Error: Tarball creation failed\n" COLOR_RESET, strlen(COLOR_RED "Error: Tarball creation failed\n" COLOR_RESET));
+        printf(COLOR_RED "Error: Tarball creation failed\n" COLOR_RESET);
+        perror("System command error");
+    }
+    else
+    {
+        printf(COLOR_GREEN "Tarball created successfully\n" COLOR_RESET);
+        write(client_socket, COLOR_GREEN "Tar Created Successfully\n" COLOR_RESET, strlen(COLOR_GREEN "Tar Created Successfully\n" COLOR_RESET));
         return;
     }
-
-    printf("[DEBUG] Tarball created successfully\n");
-    FILE *tarfile = fopen("files.tar", "rb");
-    if (!tarfile)
-    {
-        perror(COLOR_RED "Tarball open failed" COLOR_RESET);
-        char error_message[BUFSIZE];
-        snprintf(error_message, BUFSIZE, COLOR_RED "Error: Could not open tarball\n" COLOR_RESET);
-        write(client_socket, error_message, strlen(error_message));
-        return;
-    }
-
-    printf("[DEBUG] Sending tarball to client\n");
-    char buffer[BUFSIZE];
-    size_t bytes;
-    while ((bytes = fread(buffer, 1, BUFSIZE, tarfile)) > 0)
-    {
-        write(client_socket, buffer, bytes);
-    }
-    fclose(tarfile);
-    printf("[DEBUG] Finished sending tarball\n");
 }
 
 // Function to handle directory display (display)
 void handle_display(int client_socket, char *pathname)
 {
     char base_dir[BUFSIZE];
-    char display_path[BUFSIZE];
     struct dirent **namelist;
     int n;
+    int path_found = 0;
 
-    printf("[DEBUG] Starting display command\n");
-    snprintf(base_dir, sizeof(base_dir), "%s/Smain/%s", getenv("HOME"), pathname);
-    n = scandir(base_dir, &namelist, NULL, custom_alphasort);
-    if (n < 0)
+    // Buffers to accumulate files from all directories
+    char c_files[BUFSIZE * 10] = "";
+    char pdf_files[BUFSIZE * 10] = "";
+    char txt_files[BUFSIZE * 10] = "";
+
+    // Array of directories to check
+    const char *dirs_to_check[] = {"Smain", "Spdf", "Stext"};
+
+    for (int i = 0; i < 3; i++)
     {
-        snprintf(base_dir, sizeof(base_dir), "%s/Spdf/%s", getenv("HOME"), pathname);
+        snprintf(base_dir, sizeof(base_dir), "%s/%s/%s", getenv("HOME"), dirs_to_check[i], pathname);
         n = scandir(base_dir, &namelist, NULL, custom_alphasort);
-        if (n < 0)
+        if (n >= 0)
         {
-            snprintf(base_dir, sizeof(base_dir), "%s/Stext/%s", getenv("HOME"), pathname);
-            n = scandir(base_dir, &namelist, NULL, custom_alphasort);
-            if (n < 0)
+            path_found = 1;
+
+            // Accumulate files into respective buffers
+            for (int j = 0; j < n; j++)
             {
-                char error_message[BUFSIZE];
-                snprintf(error_message, BUFSIZE, COLOR_RED "Error: Could not open directory %s\n" COLOR_RESET, pathname);
-                write(client_socket, error_message, strlen(error_message));
-                return;
+                if (strstr(namelist[j]->d_name, ".c"))
+                {
+                    strncat(c_files, namelist[j]->d_name, sizeof(c_files) - strlen(c_files) - 1);
+                    strncat(c_files, "\n", sizeof(c_files) - strlen(c_files) - 1);
+                }
+                else if (strstr(namelist[j]->d_name, ".pdf"))
+                {
+                    strncat(pdf_files, namelist[j]->d_name, sizeof(pdf_files) - strlen(pdf_files) - 1);
+                    strncat(pdf_files, "\n", sizeof(pdf_files) - strlen(pdf_files) - 1);
+                }
+                else if (strstr(namelist[j]->d_name, ".txt"))
+                {
+                    strncat(txt_files, namelist[j]->d_name, sizeof(txt_files) - strlen(txt_files) - 1);
+                    strncat(txt_files, "\n", sizeof(txt_files) - strlen(txt_files) - 1);
+                }
+                free(namelist[j]);
             }
+
+            free(namelist);
         }
     }
 
-    printf("[DEBUG] Listing directory contents\n");
-    // Buffer to store directory content
-    char buffer[BUFSIZE];
-    snprintf(buffer, sizeof(buffer), COLOR_CYAN "Listing contents of: %s\n" COLOR_RESET, pathname);
-    write(client_socket, buffer, strlen(buffer));
-
-    // Listing .c files
-    for (int i = 0; i < n; i++)
+    if (path_found)
     {
-        if (strstr(namelist[i]->d_name, ".c"))
+        // Send accumulated .c files
+        if (strlen(c_files) > 0)
         {
-            snprintf(buffer, sizeof(buffer), COLOR_GREEN "%s\n" COLOR_RESET, namelist[i]->d_name);
+            char buffer[BUFSIZE];
+            // snprintf(buffer, sizeof(buffer), COLOR_GREEN "C Files:\n" COLOR_RESET);
             write(client_socket, buffer, strlen(buffer));
+            write(client_socket, c_files, strlen(c_files));
         }
-        free(namelist[i]);
-    }
 
-    // Listing .pdf files
-    for (int i = 0; i < n; i++)
+        // Send accumulated .pdf files
+        if (strlen(pdf_files) > 0)
+        {
+            char buffer[BUFSIZE];
+            // snprintf(buffer, sizeof(buffer), COLOR_YELLOW "PDF Files:\n" COLOR_RESET);
+            write(client_socket, buffer, strlen(buffer));
+            write(client_socket, pdf_files, strlen(pdf_files));
+        }
+
+        // Send accumulated .txt files
+        if (strlen(txt_files) > 0)
+        {
+            char buffer[BUFSIZE];
+            // snprintf(buffer, sizeof(buffer), COLOR_CYAN "Text Files:\n" COLOR_RESET);
+            write(client_socket, buffer, strlen(buffer));
+            write(client_socket, txt_files, strlen(txt_files));
+        }
+    }
+    else
     {
-        if (strstr(namelist[i]->d_name, ".pdf"))
-        {
-            snprintf(buffer, sizeof(buffer), COLOR_YELLOW "%s\n" COLOR_RESET, namelist[i]->d_name);
-            write(client_socket, buffer, strlen(buffer));
-        }
+        char error_message[BUFSIZE];
+        snprintf(error_message, BUFSIZE, COLOR_RED "No such path exists\n" COLOR_RESET);
+        write(client_socket, error_message, strlen(error_message));
     }
 
-    // Listing .txt files
-    for (int i = 0; i < n; i++)
-    {
-        if (strstr(namelist[i]->d_name, ".txt"))
-        {
-            snprintf(buffer, sizeof(buffer), COLOR_CYAN "%s\n" COLOR_RESET, namelist[i]->d_name);
-            write(client_socket, buffer, strlen(buffer));
-        }
-    }
-
-    free(namelist);
     printf("[DEBUG] Finished display command\n");
 }
-
 // Function to send help/usage information to the client
 void send_help(int client_socket)
 {
