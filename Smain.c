@@ -113,7 +113,11 @@ void handle_ufile(int client_socket, char *filename, char *destination_path)
     snprintf(full_path, sizeof(full_path), "%s/%s", base_dir, destination_path);
     char command[BUFSIZE];
     snprintf(command, sizeof(command), "mkdir -p %s", full_path);
-    system(command);
+    if (system(command) != 0)
+    {
+        write(client_socket, COLOR_RED "Error: Could not create directory\n" COLOR_RESET, strlen(COLOR_RED "Error: Could not create directory\n" COLOR_RESET));
+        return;
+    }
 
     strncat(full_path, "/", BUFSIZE - strlen(full_path) - 1);
     strncat(full_path, filename, BUFSIZE - strlen(full_path) - 1);
@@ -353,7 +357,6 @@ void handle_display(int client_socket, char *pathname)
         if (strlen(c_files) > 0)
         {
             char buffer[BUFSIZE];
-            // snprintf(buffer, sizeof(buffer), COLOR_GREEN "C Files:\n" COLOR_RESET);
             write(client_socket, buffer, strlen(buffer));
             write(client_socket, c_files, strlen(c_files));
         }
@@ -362,7 +365,6 @@ void handle_display(int client_socket, char *pathname)
         if (strlen(pdf_files) > 0)
         {
             char buffer[BUFSIZE];
-            // snprintf(buffer, sizeof(buffer), COLOR_YELLOW "PDF Files:\n" COLOR_RESET);
             write(client_socket, buffer, strlen(buffer));
             write(client_socket, pdf_files, strlen(pdf_files));
         }
@@ -371,7 +373,6 @@ void handle_display(int client_socket, char *pathname)
         if (strlen(txt_files) > 0)
         {
             char buffer[BUFSIZE];
-            // snprintf(buffer, sizeof(buffer), COLOR_CYAN "Text Files:\n" COLOR_RESET);
             write(client_socket, buffer, strlen(buffer));
             write(client_socket, txt_files, strlen(txt_files));
         }
@@ -485,7 +486,9 @@ void prcclient(int client_socket)
     if (n < 0)
     {
         perror(COLOR_RED "Read failed" COLOR_RESET);
+        write(client_socket, COLOR_RED "Error: Failed to read client request\n" COLOR_RESET, strlen(COLOR_RED "Error: Failed to read client request\n" COLOR_RESET));
     }
+    close(client_socket); // Ensure the socket is closed after handling the request
 }
 
 int main()

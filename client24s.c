@@ -39,6 +39,7 @@ int main()
     if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0)
     {
         perror(COLOR_RED "Invalid address or address not supported" COLOR_RESET);
+        close(sock);
         return -1;
     }
 
@@ -46,6 +47,7 @@ int main()
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
     {
         perror(COLOR_RED "Connection failed" COLOR_RESET);
+        close(sock);
         return -1;
     }
 
@@ -61,6 +63,11 @@ int main()
             continue; // Ignore empty command and prompt again
         }
 
+        if (strcmp(command, "cls") == 0 || strcmp(command, "clear") == 0)
+        {
+            system("clear");
+        }
+
         if (strcmp(command, "exit") == 0)
         {
             break; // Exit the loop if the user types "exit"
@@ -70,7 +77,11 @@ int main()
         if (strncmp(command, "ufile ", 6) == 0)
         {
             // Extract filename and destination path from the command
-            sscanf(command, "ufile %s %s", filename, destination_path);
+            if (sscanf(command, "ufile %s %s", filename, destination_path) != 2)
+            {
+                fprintf(stderr, COLOR_RED "Error: Invalid command format for ufile\n" COLOR_RESET);
+                continue;
+            }
 
             // Open the file to be uploaded
             FILE *file = fopen(filename, "rb");
@@ -81,22 +92,38 @@ int main()
             }
 
             // Send the command to the server
-            send(sock, command, strlen(command), 0);
+            if (send(sock, command, strlen(command), 0) < 0)
+            {
+                perror(COLOR_RED "Failed to send command to server" COLOR_RESET);
+                fclose(file);
+                continue;
+            }
 
             // Read file and send its content to the server
             char file_buffer[BUFSIZE];
             size_t bytes_read;
             while ((bytes_read = fread(file_buffer, 1, BUFSIZE, file)) > 0)
             {
-                send(sock, file_buffer, bytes_read, 0);
+                if (send(sock, file_buffer, bytes_read, 0) < 0)
+                {
+                    perror(COLOR_RED "Failed to send file data to server" COLOR_RESET);
+                    break;
+                }
             }
 
             fclose(file);
 
             // Receive the server's response
             int n = read(sock, server_response, BUFSIZE);
-            server_response[n] = '\0';
-            printf("%s\n", server_response);
+            if (n > 0)
+            {
+                server_response[n] = '\0';
+                printf("%s\n", server_response);
+            }
+            else
+            {
+                perror(COLOR_RED "Failed to receive server response" COLOR_RESET);
+            }
             continue;
         }
 
@@ -107,7 +134,11 @@ int main()
             strcpy(filename, command + 6);
 
             // Send the command to the server
-            send(sock, command, strlen(command), 0);
+            if (send(sock, command, strlen(command), 0) < 0)
+            {
+                perror(COLOR_RED "Failed to send command to server" COLOR_RESET);
+                continue;
+            }
 
             // Open the file to save the downloaded content
             FILE *file = fopen(filename, "wb");
@@ -160,7 +191,11 @@ int main()
             snprintf(filename, sizeof(filename), "%sFiles.tar", ext);
 
             // Send the command to the server
-            send(sock, command, strlen(command), 0);
+            if (send(sock, command, strlen(command), 0) < 0)
+            {
+                perror(COLOR_RED "Failed to send command to server" COLOR_RESET);
+                continue;
+            }
 
             // Open the file to save the downloaded tar content
             FILE *file = fopen(filename, "wb");
@@ -200,12 +235,23 @@ int main()
         }
 
         // Handle other commands (rmfile, display, help)
-        send(sock, command, strlen(command), 0);
+        if (send(sock, command, strlen(command), 0) < 0)
+        {
+            perror(COLOR_RED "Failed to send command to server" COLOR_RESET);
+            continue;
+        }
 
         // Receive and print the response from Smain server
         int n = read(sock, server_response, BUFSIZE);
-        server_response[n] = '\0';
-        printf("%s\n", server_response);
+        if (n > 0)
+        {
+            server_response[n] = '\0';
+            printf("%s\n", server_response);
+        }
+        else
+        {
+            perror(COLOR_RED "Failed to receive server response" COLOR_RESET);
+        }
     }
 
     close(sock); // Close the socket when done
