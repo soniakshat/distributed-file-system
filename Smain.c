@@ -97,6 +97,12 @@ int custom_alphasort(const struct dirent **a, const struct dirent **b)
     return strcasecmp((*a)->d_name, (*b)->d_name);
 }
 
+// Send Message to client
+void send_message_to_client(int client_socket, char *message)
+{
+    write(client_socket, message, strlen(message));
+}
+
 void handle_ufile(int client_socket, char *filename, char *destination_path)
 {
     char *ext = strrchr(filename, '.');
@@ -106,7 +112,7 @@ void handle_ufile(int client_socket, char *filename, char *destination_path)
     get_base_dir(ext, base_dir);
     if (base_dir[0] == '\0')
     {
-        write(client_socket, COLOR_RED "Error: Unsupported file type\n" COLOR_RESET, strlen(COLOR_RED "Error: Unsupported file type\n" COLOR_RESET));
+        send_message_to_client(client_socket, COLOR_RED "Error: Unsupported file type\n" COLOR_RESET);
         return;
     }
 
@@ -115,7 +121,7 @@ void handle_ufile(int client_socket, char *filename, char *destination_path)
     snprintf(command, sizeof(command), "mkdir -p %s", full_path);
     if (system(command) != 0)
     {
-        write(client_socket, COLOR_RED "Error: Could not create directory\n" COLOR_RESET, strlen(COLOR_RED "Error: Could not create directory\n" COLOR_RESET));
+        send_message_to_client(client_socket, COLOR_RED "Error: Could not create directory\n" COLOR_RESET);
         return;
     }
 
@@ -128,7 +134,7 @@ void handle_ufile(int client_socket, char *filename, char *destination_path)
         perror(COLOR_RED "File creation failed" COLOR_RESET);
         char error_message[BUFSIZE];
         snprintf(error_message, BUFSIZE, COLOR_RED "Error: Could not create file %s\n" COLOR_RESET, full_path);
-        write(client_socket, error_message, strlen(error_message));
+        send_message_to_client(client_socket, error_message);
         return;
     }
 
@@ -143,7 +149,7 @@ void handle_ufile(int client_socket, char *filename, char *destination_path)
     }
 
     fclose(dest);
-    write(client_socket, COLOR_GREEN "File uploaded successfully\n" COLOR_RESET, strlen(COLOR_GREEN "File uploaded successfully\n" COLOR_RESET));
+    send_message_to_client(client_socket, COLOR_GREEN "File uploaded successfully\n" COLOR_RESET);
 }
 
 // Function to handle file download (dfile)
@@ -157,7 +163,7 @@ void handle_dfile(int client_socket, char *filename)
     printf("[DEBUG] Base directory: %s\n", base_dir);
     if (base_dir[0] == '\0')
     {
-        write(client_socket, COLOR_RED "Error: Unsupported file type\n" COLOR_RESET, strlen(COLOR_RED "Error: Unsupported file type\n" COLOR_RESET));
+        send_message_to_client(client_socket, COLOR_RED "Error: Unsupported file type\n" COLOR_RESET);
         return;
     }
 
@@ -165,7 +171,7 @@ void handle_dfile(int client_socket, char *filename)
     {
         char error_message[BUFSIZE];
         snprintf(error_message, BUFSIZE, COLOR_RED "Error: File %s does not exist\n" COLOR_RESET, filename);
-        write(client_socket, error_message, strlen(error_message));
+        send_message_to_client(client_socket, error_message);
         return;
     }
 
@@ -176,7 +182,7 @@ void handle_dfile(int client_socket, char *filename)
         perror(COLOR_RED "File open failed" COLOR_RESET);
         char error_message[BUFSIZE];
         snprintf(error_message, BUFSIZE, COLOR_RED "Error: Could not open file %s\n" COLOR_RESET, found_path);
-        write(client_socket, error_message, strlen(error_message));
+        send_message_to_client(client_socket, error_message);
         return;
     }
 
@@ -195,8 +201,7 @@ void handle_dfile(int client_socket, char *filename)
 
     // Send a confirmation message to indicate the end of transmission
     printf("[DEBUG] Sending transfer complete message\n");
-    write(client_socket, "Transfer complete\n", 18);
-
+    send_message_to_client(client_socket, "Transfer complete\n");
     printf("[DEBUG] dfile command completed\n");
 }
 
@@ -211,7 +216,7 @@ void handle_rmfile(int client_socket, char *filename)
     printf("[DEBUG] Base directory: %s\n", base_dir);
     if (base_dir[0] == '\0')
     {
-        write(client_socket, COLOR_RED "Error: Unsupported file type\n" COLOR_RESET, strlen(COLOR_RED "Error: Unsupported file type\n" COLOR_RESET));
+        send_message_to_client(client_socket, COLOR_RED "Error: Unsupported file type\n" COLOR_RESET);
         return;
     }
 
@@ -219,21 +224,21 @@ void handle_rmfile(int client_socket, char *filename)
     {
         char error_message[BUFSIZE];
         snprintf(error_message, BUFSIZE, COLOR_RED "Error: File %s not found\n" COLOR_RESET, filename);
-        write(client_socket, error_message, strlen(error_message));
+        send_message_to_client(client_socket, error_message);
         return;
     }
 
     printf("[DEBUG] File found at path: %s\n", found_path);
     if (remove(found_path) == 0)
     {
-        write(client_socket, COLOR_GREEN "File removed successfully\n" COLOR_RESET, strlen(COLOR_GREEN "File removed successfully\n" COLOR_RESET));
+        send_message_to_client(client_socket, COLOR_GREEN "File removed successfully\n" COLOR_RESET);
     }
     else
     {
         perror(COLOR_RED "File removal failed" COLOR_RESET);
         char error_message[BUFSIZE];
         snprintf(error_message, BUFSIZE, COLOR_RED "Error: Could not remove file %s\n" COLOR_RESET, found_path);
-        write(client_socket, error_message, strlen(error_message));
+        send_message_to_client(client_socket, error_message);
     }
     printf("[DEBUG] Finished rmfile command\n");
 }
@@ -252,7 +257,7 @@ void handle_dtar(int client_socket, const char *filetype)
     if (base_dir[0] == '\0')
     {
         printf(COLOR_RED "Unsupported file type\n" COLOR_RESET);
-        write(client_socket, COLOR_RED "Error: Unsupported file type\n" COLOR_RESET, strlen(COLOR_RED "Error: Unsupported file type\n" COLOR_RESET));
+        send_message_to_client(client_socket, COLOR_RED "Error: Unsupported file type\n" COLOR_RESET);
         return;
     }
 
@@ -267,7 +272,7 @@ void handle_dtar(int client_socket, const char *filetype)
     if (system(command) != 0)
     {
         printf(COLOR_RED "Error: Tarball creation failed\n" COLOR_RESET);
-        write(client_socket, COLOR_RED "Error: Tarball creation failed\n" COLOR_RESET, strlen(COLOR_RED "Error: Tarball creation failed\n" COLOR_RESET));
+        send_message_to_client(client_socket, COLOR_RED "Error: Tarball creation failed\n" COLOR_RESET);
         return;
     }
 
@@ -276,7 +281,7 @@ void handle_dtar(int client_socket, const char *filetype)
     if (!tar_file)
     {
         perror(COLOR_RED "Failed to open tar file" COLOR_RESET);
-        write(client_socket, COLOR_RED "Error: Failed to open tar file\n" COLOR_RESET, strlen(COLOR_RED "Error: Failed to open tar file\n" COLOR_RESET));
+        send_message_to_client(client_socket, COLOR_RED "Error: Failed to open tar file\n" COLOR_RESET);
         return;
     }
 
@@ -293,7 +298,7 @@ void handle_dtar(int client_socket, const char *filetype)
     fclose(tar_file);
 
     // Send a message indicating transfer completion
-    write(client_socket, "Transfer complete\n", 18);
+    send_message_to_client(client_socket, "Transfer complete\n");
 
     // Delete the tar file from the server
     if (remove(tar_filename) != 0)
@@ -357,48 +362,43 @@ void handle_display(int client_socket, char *pathname)
         if (strlen(c_files) > 0)
         {
             char buffer[BUFSIZE];
-            write(client_socket, buffer, strlen(buffer));
-            write(client_socket, c_files, strlen(c_files));
+            send_message_to_client(client_socket, buffer);
+            send_message_to_client(client_socket, c_files);
         }
 
         // Send accumulated .pdf files
         if (strlen(pdf_files) > 0)
         {
             char buffer[BUFSIZE];
-            write(client_socket, buffer, strlen(buffer));
-            write(client_socket, pdf_files, strlen(pdf_files));
+            send_message_to_client(client_socket, buffer);
+            send_message_to_client(client_socket, pdf_files);
         }
 
         // Send accumulated .txt files
         if (strlen(txt_files) > 0)
         {
             char buffer[BUFSIZE];
-            write(client_socket, buffer, strlen(buffer));
-            write(client_socket, txt_files, strlen(txt_files));
+            send_message_to_client(client_socket, buffer);
+            send_message_to_client(client_socket, txt_files);
         }
     }
     else
     {
         char error_message[BUFSIZE];
         snprintf(error_message, BUFSIZE, COLOR_RED "No such path exists\n" COLOR_RESET);
-        write(client_socket, error_message, strlen(error_message));
+        send_message_to_client(client_socket, error_message);
     }
 
     printf("[DEBUG] Finished display command\n");
 }
+
 // Function to send help/usage information to the client
 void send_help(int client_socket)
 {
     const char *help_message =
-        COLOR_CYAN "Usage:\n"
-                   "ufile <filename> <destination_path> : Upload a file to the server.\n"
-                   "dfile <filename>                    : Download a file from the server.\n"
-                   "rmfile <filename>                   : Remove a file from the server.\n"
-                   "dtar <filetype>                     : Create and download a tarball of files of a specific type.\n"
-                   "display <pathname>                  : Display the list of files in a directory.\n"
-                   "help                                : Display this help message.\n" COLOR_RESET;
+        COLOR_CYAN "Usage:\n" COLOR_RESET COLOR_CYAN "ufile <filename> <destination_path> : Upload a file to the server.\n" COLOR_RESET COLOR_CYAN "dfile <filename>                    : Download a file from the server.\n" COLOR_RESET COLOR_CYAN "rmfile <filename>                   : Remove a file from the server.\n" COLOR_RESET COLOR_CYAN "dtar <filetype>                     : Create and download a tarball of files of a specific type.\n" COLOR_RESET COLOR_CYAN "display <pathname>                  : Display the list of files in a directory.\n" COLOR_RESET COLOR_CYAN "help                                : Display this help message.\n" COLOR_RESET COLOR_CYAN "exit                                : Exit the communication with server\n" COLOR_RESET;
 
-    write(client_socket, help_message, strlen(help_message));
+    send_message_to_client(client_socket, help_message);
 }
 
 // Function to handle client requests
@@ -422,7 +422,7 @@ void prcclient(int client_socket)
             }
             else
             {
-                write(client_socket, COLOR_RED "Error: Invalid command format\n" COLOR_RESET, strlen(COLOR_RED "Error: Invalid command format\n" COLOR_RESET));
+                send_message_to_client(client_socket, COLOR_RED "Error: Invalid command format\n" COLOR_RESET " Use " COLOR_GREEN "help" COLOR_RESET " to get help");
             }
         }
         else if (strcmp(command, "dfile") == 0)
@@ -434,7 +434,7 @@ void prcclient(int client_socket)
             }
             else
             {
-                write(client_socket, COLOR_RED "Error: Invalid command format\n" COLOR_RESET, strlen(COLOR_RED "Error: Invalid command format\n" COLOR_RESET));
+                send_message_to_client(client_socket, COLOR_RED "Error: Invalid command format\n" COLOR_RESET " Use " COLOR_GREEN "help" COLOR_RESET " to get help");
             }
         }
         else if (strcmp(command, "rmfile") == 0)
@@ -446,7 +446,7 @@ void prcclient(int client_socket)
             }
             else
             {
-                write(client_socket, COLOR_RED "Error: Invalid command format\n" COLOR_RESET, strlen(COLOR_RED "Error: Invalid command format\n" COLOR_RESET));
+                send_message_to_client(client_socket, COLOR_RED "Error: Invalid command format\n" COLOR_RESET " Use " COLOR_GREEN "help" COLOR_RESET " to get help");
             }
         }
         else if (strcmp(command, "dtar") == 0)
@@ -458,7 +458,7 @@ void prcclient(int client_socket)
             }
             else
             {
-                write(client_socket, COLOR_RED "Error: Invalid command format\n" COLOR_RESET, strlen(COLOR_RED "Error: Invalid command format\n" COLOR_RESET));
+                send_message_to_client(client_socket, COLOR_RED "Error: Invalid command format\n" COLOR_RESET " Use " COLOR_GREEN "help" COLOR_RESET " to get help");
             }
         }
         else if (strcmp(command, "display") == 0)
@@ -470,7 +470,7 @@ void prcclient(int client_socket)
             }
             else
             {
-                write(client_socket, COLOR_RED "Error: Invalid command format\n" COLOR_RESET, strlen(COLOR_RED "Error: Invalid command format\n" COLOR_RESET));
+                send_message_to_client(client_socket, COLOR_RED "Error: Invalid command format\n" COLOR_RESET " Use " COLOR_GREEN "help" COLOR_RESET " to get help");
             }
         }
         else if (strcmp(command, "help") == 0)
@@ -479,14 +479,14 @@ void prcclient(int client_socket)
         }
         else
         {
-            write(client_socket, COLOR_RED "Error: Unknown command\n" COLOR_RESET, strlen(COLOR_RED "Error: Unknown command\n" COLOR_RESET));
+            send_message_to_client(client_socket, COLOR_RED "Error: Unknown command\n" COLOR_RESET "Use " COLOR_GREEN "help" COLOR_RESET " to get help");
         }
     }
 
     if (n < 0)
     {
         perror(COLOR_RED "Read failed" COLOR_RESET);
-        write(client_socket, COLOR_RED "Error: Failed to read client request\n" COLOR_RESET, strlen(COLOR_RED "Error: Failed to read client request\n" COLOR_RESET));
+        send_message_to_client(client_socket, COLOR_RED "Error: Failed to read client request\n" COLOR_RESET);
     }
     close(client_socket); // Ensure the socket is closed after handling the request
 }
