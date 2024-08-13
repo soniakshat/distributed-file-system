@@ -20,33 +20,6 @@
 #define COLOR_YELLOW "\033[33m"
 #define COLOR_CYAN "\033[36m"
 
-// Function to start a sub-server
-void start_sub_server(const char *server_name, const char *port)
-{
-    if (access(server_name, X_OK) != 0)
-    {
-        fprintf(stderr, COLOR_RED "Error: Sub-server executable %s not found or not executable\n" COLOR_RESET, server_name);
-        return;
-    }
-
-    pid_t pid = fork();
-    if (pid == 0)
-    {
-        execlp(server_name, server_name, port, NULL);
-        perror(COLOR_RED "execlp failed" COLOR_RESET);
-        exit(EXIT_FAILURE);
-    }
-    else if (pid > 0)
-    {
-        printf(COLOR_GREEN "Started sub-server %s on port %s with PID %d\n" COLOR_RESET, server_name, port, pid);
-    }
-    else
-    {
-        perror(COLOR_RED "fork failed" COLOR_RESET);
-        exit(EXIT_FAILURE);
-    }
-}
-
 // Function to determine the base directory based on file extension
 void get_base_dir(char *ext, char *base_dir)
 {
@@ -124,7 +97,6 @@ int custom_alphasort(const struct dirent **a, const struct dirent **b)
     return strcasecmp((*a)->d_name, (*b)->d_name);
 }
 
-// Function to handle file upload (ufile)
 void handle_ufile(int client_socket, char *filename, char *destination_path)
 {
     char *ext = strrchr(filename, '.');
@@ -146,36 +118,28 @@ void handle_ufile(int client_socket, char *filename, char *destination_path)
     strncat(full_path, "/", BUFSIZE - strlen(full_path) - 1);
     strncat(full_path, filename, BUFSIZE - strlen(full_path) - 1);
 
-    FILE *src = fopen(filename, "rb");
-    if (!src)
-    {
-        perror(COLOR_RED "File open failed" COLOR_RESET);
-        char error_message[BUFSIZE];
-        snprintf(error_message, BUFSIZE, COLOR_RED "Error: Could not open file %s\n" COLOR_RESET, filename);
-        write(client_socket, error_message, strlen(error_message));
-        return;
-    }
-
     FILE *dest = fopen(full_path, "wb");
     if (!dest)
     {
-        perror(COLOR_RED "File save failed" COLOR_RESET);
+        perror(COLOR_RED "File creation failed" COLOR_RESET);
         char error_message[BUFSIZE];
-        snprintf(error_message, BUFSIZE, COLOR_RED "Error: Could not save file to %s\n" COLOR_RESET, full_path);
+        snprintf(error_message, BUFSIZE, COLOR_RED "Error: Could not create file %s\n" COLOR_RESET, full_path);
         write(client_socket, error_message, strlen(error_message));
-        fclose(src);
         return;
     }
 
+    // Read data sent by the client and write it to the file
     char buffer[BUFSIZE];
-    size_t bytes;
-    while ((bytes = fread(buffer, 1, BUFSIZE, src)) > 0)
+    ssize_t bytes;
+    while ((bytes = read(client_socket, buffer, BUFSIZE)) > 0)
     {
         fwrite(buffer, 1, bytes, dest);
+        if (bytes < BUFSIZE) // assuming client will close connection after sending file
+            break;
     }
-    fclose(src);
+
     fclose(dest);
-    write(client_socket, COLOR_GREEN "File stored successfully\n" COLOR_RESET, strlen(COLOR_GREEN "File stored successfully\n" COLOR_RESET));
+    write(client_socket, COLOR_GREEN "File uploaded successfully\n" COLOR_RESET, strlen(COLOR_GREEN "File uploaded successfully\n" COLOR_RESET));
 }
 
 // Function to handle file download (dfile)
@@ -274,6 +238,9 @@ void handle_rmfile(int client_socket, char *filename)
 void handle_dtar(int client_socket, const char *filetype)
 {
     char command[BUFSIZE];
+    char tar_filename[BUFSIZE];
+    char buffer[BUFSIZE];
+    ssize_t bytes;
     char base_dir[BUFSIZE];
 
     get_base_dir((char *)filetype, base_dir);
@@ -285,35 +252,49 @@ void handle_dtar(int client_socket, const char *filetype)
         return;
     }
 
-    if (strcmp(filetype, ".c") == 0)
+    // Remove the leading dot from the filetype
+    const char *ext = filetype[0] == '.' ? filetype + 1 : filetype;
+
+    // Create tarball based on file extension without the leading dot
+    snprintf(tar_filename, sizeof(tar_filename), "%sFiles.tar", ext);
+    snprintf(command, sizeof(command), "tar -cvf %s $(find %s -name '*.%s')", tar_filename, base_dir, ext);
+
+    // Execute the tar command
+    if (system(command) != 0)
     {
-        snprintf(command, sizeof(command), "tar -cvf cFiles.tar $(find %s -name '*.c')", base_dir);
-    }
-    else if (strcmp(filetype, ".pdf") == 0)
-    {
-        snprintf(command, sizeof(command), "tar -cvf pdfFiles.tar $(find %s -name '*.pdf')", base_dir);
-    }
-    else if (strcmp(filetype, ".txt") == 0)
-    {
-        snprintf(command, sizeof(command), "tar -cvf txtFiles.tar $(find %s -name '*.txt')", base_dir);
-    }
-    else
-    {
-        write(client_socket, COLOR_RED "Error: Unsupported file type\n" COLOR_RESET, strlen(COLOR_RED "Error: Unsupported file type\n" COLOR_RESET));
+        printf(COLOR_RED "Error: Tarball creation failed\n" COLOR_RESET);
+        write(client_socket, COLOR_RED "Error: Tarball creation failed\n" COLOR_RESET, strlen(COLOR_RED "Error: Tarball creation failed\n" COLOR_RESET));
         return;
     }
 
-    int result = system(command);
-    if (result != 0)
+    // Open the tar file to send its contents to the client
+    FILE *tar_file = fopen(tar_filename, "rb");
+    if (!tar_file)
     {
-        printf(COLOR_RED "Error: Tarball creation failed\n" COLOR_RESET);
-        perror("System command error");
-    }
-    else
-    {
-        printf(COLOR_GREEN "Tarball created successfully\n" COLOR_RESET);
-        write(client_socket, COLOR_GREEN "Tar Created Successfully\n" COLOR_RESET, strlen(COLOR_GREEN "Tar Created Successfully\n" COLOR_RESET));
+        perror(COLOR_RED "Failed to open tar file" COLOR_RESET);
+        write(client_socket, COLOR_RED "Error: Failed to open tar file\n" COLOR_RESET, strlen(COLOR_RED "Error: Failed to open tar file\n" COLOR_RESET));
         return;
+    }
+
+    // Send the tar file to the client
+    while ((bytes = fread(buffer, 1, BUFSIZE, tar_file)) > 0)
+    {
+        if (write(client_socket, buffer, bytes) != bytes)
+        {
+            perror(COLOR_RED "Failed to send tar file contents" COLOR_RESET);
+            break;
+        }
+    }
+
+    fclose(tar_file);
+
+    // Send a message indicating transfer completion
+    write(client_socket, "Transfer complete\n", 18);
+
+    // Delete the tar file from the server
+    if (remove(tar_filename) != 0)
+    {
+        perror(COLOR_RED "Failed to delete tar file" COLOR_RESET);
     }
 }
 
@@ -512,10 +493,6 @@ int main()
     int server_socket, client_socket;
     struct sockaddr_in server_addr, client_addr;
     socklen_t client_len = sizeof(client_addr);
-
-    // Start the sub-servers
-    start_sub_server("./Spdf", "9090");
-    start_sub_server("./Stext", "9091");
 
     // Create the Smain socket
     if ((server_socket = socket(AF_INET, SOCK_STREAM, 0)) == 0)

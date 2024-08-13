@@ -21,6 +21,7 @@ int main()
     char buffer[BUFSIZE];
     char command[BUFSIZE];
     char filename[BUFSIZE];
+    char destination_path[BUFSIZE];
     char server_response[BUFSIZE];
 
     // Create a socket to connect to Smain server
@@ -65,27 +66,50 @@ int main()
             break; // Exit the loop if the user types "exit"
         }
 
-        // Send the command to Smain server
-        send(sock, command, strlen(command), 0);
+        // Handle the ufile command
+        if (strncmp(command, "ufile ", 6) == 0)
+        {
+            // Extract filename and destination path from the command
+            sscanf(command, "ufile %s %s", filename, destination_path);
 
-        // Handle special cases like downloading files
+            // Open the file to be uploaded
+            FILE *file = fopen(filename, "rb");
+            if (!file)
+            {
+                perror(COLOR_RED "File open failed" COLOR_RESET);
+                continue;
+            }
+
+            // Send the command to the server
+            send(sock, command, strlen(command), 0);
+
+            // Read file and send its content to the server
+            char file_buffer[BUFSIZE];
+            size_t bytes_read;
+            while ((bytes_read = fread(file_buffer, 1, BUFSIZE, file)) > 0)
+            {
+                send(sock, file_buffer, bytes_read, 0);
+            }
+
+            fclose(file);
+
+            // Receive the server's response
+            int n = read(sock, server_response, BUFSIZE);
+            server_response[n] = '\0';
+            printf("%s\n", server_response);
+            continue;
+        }
+
+        // Handle the dfile command
         if (strncmp(command, "dfile ", 6) == 0)
         {
             // Extract filename from the command
             strcpy(filename, command + 6);
 
-            // Receive the initial response from the server
-            int n = read(sock, server_response, BUFSIZE);
-            server_response[n] = '\0';
+            // Send the command to the server
+            send(sock, command, strlen(command), 0);
 
-            // Check for error message
-            if (strstr(server_response, "Error:") != NULL)
-            {
-                printf(COLOR_RED "%s\n" COLOR_RESET, server_response);
-                continue; // Do not create the file if there is an error
-            }
-
-            // If no error, create the file with the correct filename
+            // Open the file to save the downloaded content
             FILE *file = fopen(filename, "wb");
             if (!file)
             {
@@ -93,23 +117,90 @@ int main()
                 continue;
             }
 
-            // Write the received content to the file
-            fwrite(server_response, 1, n, file);
+            int n;
+            int transfer_complete = 0;
 
-            // Continue reading the rest of the file content
+            // Receive and write the file content
             while ((n = read(sock, server_response, BUFSIZE)) > 0)
             {
-                // Check for transfer complete message
                 if (strstr(server_response, "Transfer complete\n") != NULL)
                 {
-                    printf(COLOR_GREEN "File download complete: %s\n" COLOR_RESET, filename);
+                    // Stop when we get the "Transfer complete" message
+                    transfer_complete = 1;
+                    fwrite(server_response, 1, strstr(server_response, "Transfer complete\n") - server_response, file);
                     break;
                 }
                 fwrite(server_response, 1, n, file);
             }
+
             fclose(file);
+
+            if (transfer_complete)
+            {
+                printf(COLOR_GREEN "File download complete: %s\n" COLOR_RESET, filename);
+            }
+            else
+            {
+                printf(COLOR_RED "File download failed or incomplete\n" COLOR_RESET);
+            }
             continue;
         }
+
+        // Handle the dtar command
+        if (strncmp(command, "dtar ", 5) == 0)
+        {
+            // Extract filetype from the command
+            char filetype[BUFSIZE];
+            strcpy(filetype, command + 5);
+
+            // Remove the leading dot from the filetype before constructing the filename
+            const char *ext = filetype[0] == '.' ? filetype + 1 : filetype;
+
+            // Generate the tar filename
+            snprintf(filename, sizeof(filename), "%sFiles.tar", ext);
+
+            // Send the command to the server
+            send(sock, command, strlen(command), 0);
+
+            // Open the file to save the downloaded tar content
+            FILE *file = fopen(filename, "wb");
+            if (!file)
+            {
+                perror(COLOR_RED "Tar file creation failed" COLOR_RESET);
+                continue;
+            }
+
+            int n;
+            int transfer_complete = 0;
+
+            // Receive and write the tar file content
+            while ((n = read(sock, server_response, BUFSIZE)) > 0)
+            {
+                if (strstr(server_response, "Transfer complete\n") != NULL)
+                {
+                    // Stop when we get the "Transfer complete" message
+                    transfer_complete = 1;
+                    fwrite(server_response, 1, strstr(server_response, "Transfer complete\n") - server_response, file);
+                    break;
+                }
+                fwrite(server_response, 1, n, file);
+            }
+
+            fclose(file);
+
+            if (transfer_complete)
+            {
+                printf(COLOR_GREEN "Tar file download complete: %s\n" COLOR_RESET, filename);
+            }
+            else
+            {
+                printf(COLOR_RED "Tar file download failed or incomplete\n" COLOR_RESET);
+            }
+            continue;
+        }
+
+        // Handle other commands (rmfile, display, help)
+        send(sock, command, strlen(command), 0);
 
         // Receive and print the response from Smain server
         int n = read(sock, server_response, BUFSIZE);
